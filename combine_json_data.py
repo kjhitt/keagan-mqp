@@ -1,3 +1,7 @@
+#purpose of file:
+#    combines data from both JSON files to only
+#    get proteins matching criteria in both
+
 import json
 
 with open("BIGb0172_comparison.json", "r") as f172:

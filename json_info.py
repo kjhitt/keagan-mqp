@@ -1,3 +1,6 @@
+#purpose of file:
+#    prints length of json file
+
 import json
 
 with open("BIGb0172_comparison.json", "r") as f:

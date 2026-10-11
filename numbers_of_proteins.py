@@ -1,3 +1,6 @@
+#purpose of file:
+#    counts the # of proteins in a fasta file
+
 fileName = "../Proteins/MYb11.faa"
 
 with open(fileName, "r") as file:

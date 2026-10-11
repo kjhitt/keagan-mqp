@@ -1,13 +1,23 @@
+# purpose of file:
+#    writes to output json file given filter of proteome comparison
+
 import pandas as pd
 import math
 import json
 
-ID_CUTOFF = 0.3
+ID_CUTOFF = 0.7
 
 df = pd.read_excel("BIGb0172_comparison.xls")
-output = "BIGb0172_comparison.json"
+output = "BIGb0172_comparison_70.json"
+#df = pd.read_excel("BIGb0393_comparison.xls")
+#output = "BIGb0393_comparison_70.json"
+#main difference:
+# 0393 has 1 as the other symptom-alleviating bacteria,
+# 0172 has 4
+
 
 df_filtered = df[['ref_genome_patric_id', 'comp_genome_4_patric_id', 'comp_genome_1_percent_identity', 'comp_genome_2_percent_identity', 'comp_genome_3_percent_identity', 'comp_genome_4_percent_identity', 'comp_genome_5_percent_identity']]
+#df_filtered = df[['ref_genome_patric_id', 'comp_genome_1_patric_id', 'comp_genome_1_percent_identity', 'comp_genome_2_percent_identity', 'comp_genome_3_percent_identity', 'comp_genome_4_percent_identity', 'comp_genome_5_percent_identity']]
 
 data = []
 
