@@ -4,10 +4,10 @@
 
 import json
 
-with open("BIGb0172_comparison.json", "r") as f172:
+with open("BIGb0172_comparison_30.json", "r") as f172:
     data172 = json.load(f172)
 
-with open("BIGb0393_comparison.json", "r") as f393:
+with open("BIGb0393_comparison_30.json", "r") as f393:
     data393 = json.load(f393)
 
 in_both = []
@@ -22,6 +22,6 @@ for i in range(len(data172)):
 
 sorted_both = sorted(in_both, key=lambda x: x['comp_genome_4_percent_identity'])
 
-print("Protein & Sequence IDs (in BIGb0172):")
+print(f"{len(sorted_both)} Protein & Sequence IDs (in BIGb0172):")
 for seq in sorted_both:
     print(seq['ref_genome_patric_id'], seq['comp_genome_4_percent_identity'])
