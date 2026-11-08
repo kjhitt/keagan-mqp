@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Proteome Comparison Visualization</title>
+  <link rel="stylesheet" href="index.css">
+</head>
+<body>
+  <input type="file" id="fileInput" accept=".xls">
+  <div id="container"></div>
+  <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script>
+    console.log("d3 version", d3.version); // test that d3 loaded
+    // Declare the chart dimensions.
+    const width = 1000;
+    const height = 1000;
+
+    var header; //perhaps not the best to make header global, but currently think it will work
+
+    function handleFileUpload(e) {
+        var file = e.target.files[0];
+        var reader = new FileReader();
+
+        reader.onload = function(e) {
+            const sheet = XLSX.read(e.target.result, {
+                type: "array"
+            }); //can't convert xls to sheets easily without using this XLSX thing
+            
+            const worksheet = sheet.Sheets[sheet.SheetNames[0]];
+
+            const lines = XLSX.utils.sheet_to_json(worksheet, {
+                header: 1,
+                defval: ""
+            }); //converts to lines
+
+            const tempHeader = lines[0];
+            header = []; 
+
+            for (let i = 0; i < tempHeader.length; i++) {
+                if (tempHeader[i].length > 0) {
+                    //adds only the organism names to the header
+                    header.push(tempHeader[i]);
+                }
+            }
+
+            lines.shift(); //removes the first row to make the second row the header
+
+            const data = d3.csvParse(lines.join("\n")); //turn back into a csv!
+
+            d3.select('#chart').remove();
+            makeChart(data); //makes the chart after removing old one
+        };
+
+        reader.readAsArrayBuffer(file);
+    }
+
+    document.getElementById('fileInput').addEventListener('change', handleFileUpload);
+
+    function makeChart(data) {
+        // Create the SVG container.
+        const svg = d3.create("svg")
+            .attr("width", width)
+            .attr("height", height)
+            .attr("id", "chart");
+
+        //reference genome data
+        starts = [];
+        ends = [];
+        //all genome data - 2D arrays
+        identities = [];
+        colorMap = [];
+        arcsArray = [];
+
+
+        for (let i = 0; i < header.length; i++) {
+            if (i != 0) {
+                identities.push([]); //not needed for reference
+            }
+            colorMap.push([]);
+            arcsArray.push([]);
+        }
+
+        data.map(d => {
+            starts.push(d["ref_genome_start"]);
+            ends.push(d["ref_genome_end"]);
+            for (let i = 1; i < header.length; i++) {
+                identities[i - 1].push(d[`comp_genome_${i}_percent_identity`]);
+            }
+        });
+
+        lengths = [];
+        lengths.push(starts[0]); //initial white space
+
+        for (let i = 0; i < starts.length - 1; i++) {
+            lengths.push(ends[i] - starts[i]); //colored space
+            lengths.push(starts[i + 1] - ends[i]); //white space
+        }
+
+        lengths.push(ends[starts.length - 1] - starts[starts.length - 1]); //final colored space
+
+        //defining custom color range
+        const color = d3.scaleLinear()
+            .domain([0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.95, 0.98, 0.99, 0.995, 0.998, 0.999, 100])
+            .range(["#ff1100", "#ff9f99", "#ffa699", "#ffae99", "#ffb799", "#ffc299", "#ffcf99", "#ffe099", "#fff899", "#deff99", "#b5ff99", "#99ffb1", "#99ffd8", "#99fffc", "#99daff", "#99c2ff", "#9999ff"]);
+
+        //can now determine colors corresponding to sequence identity
+        for (let i = 0; i < header.length; i++) {
+            for (let j = 0; j < lengths.length; j++) {
+                if (j % 2 === 0) {
+                    colorMap[i].push("white");
+                } else {
+                    if (i === 0) {
+                        colorMap[i].push("#9999ff"); //always 100% for reference
+                    } else {
+                        //have to color according to scale (and always white if 0% sequence identity)
+                        if (identities[i - 1][Math.floor(j / 2)] === '') {
+                            colorMap[i].push("white");
+                        } else {
+                            let identity = identities[i - 1][Math.floor(j / 2)];
+                            colorMap[i].push(color(identity));
+                        }
+                    }
+                }
+            }
+        }
+
+        const pie = d3.pie().sortValues(null); //cancel sorting
+        const arcs = pie(lengths);
+        console.log(header);
+        for (let i = 0; i < header.length; i++) {
+            console.log("printing arc i", i)
+            arcsArray[i] = d3.arc()
+                .innerRadius(400 - 25 * (i + 1))
+                .outerRadius(400 - 25 * i);
+        }
+
+        const g = svg.append("g") //puts pie chart in center of svg
+            .attr("transform", `translate(${width / 2}, ${height / 2})`);
+        
+        //creates arcs for each bacteria
+        for (let i = 0; i < header.length; i++) {
+            const newRing = g.append("g");
+
+            newRing.selectAll("path")
+                .data(arcs)
+                .join("path")
+                .attr("d", arcsArray[i])
+                .attr("fill", (d, j) => colorMap[i][j]);
+        }
+
+        // Append the SVG element.
+        container.append(svg.node());
+    }
+  </script>
+</body>
+</html>
