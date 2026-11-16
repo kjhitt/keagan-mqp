@@ -7,16 +7,41 @@
 </head>
 <body>
   <input type="file" id="fileInput" accept=".xls">
+  <label for="sortCheckbox" id="sortLabel"hidden>Sort by Percent Identity</label>
+  <input type="checkbox" id="sortCheckbox" hidden></input>
+  <label for="cutoffInput" id="cutoffLabel" hidden>|   Filter by Minimum Percent Identity:</label>
+  <select id="cutoffInput" hidden>
+    <option value="0">0%</option>
+    <option value="0.1">10%</option>
+    <option value="0.2">20%</option>
+    <option value="0.3">30%</option>
+    <option value="0.4">40%</option>
+    <option value="0.5">50%</option>
+    <option value="0.6">60%</option>
+    <option value="0.7">70%</option>
+    <option value="0.8">80%</option>
+    <option value="0.9">90%</option>
+    <option value="1">100%</option>
+  </select>
   <div id="container"></div>
   <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <script>
     console.log("d3 version", d3.version); // test that d3 loaded
     // Declare the chart dimensions.
-    const width = 1000;
+    const width = 1200;
     const height = 1000;
+    const colorRange = ["#FFFFFF", "#FFFFB3", "#E1E987", "#B8D15C", "#8BBA30", "#59A300", "#008C00", "#007400", "#005800", "#003D00", "#002600"]
+    var colorDomain = [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1];
 
     var header; //perhaps not the best to make header global, but currently think it will work
+    //defining custom color range - can change depending on input
+    var color = d3.scaleLinear()
+        .domain(colorDomain)
+        .range(colorRange);
+    var fileData; //global variable for all file data
+    var toSort = false; //global variable for sorted
+    var cutoff = 0; //global variable for filter
 
     function handleFileUpload(e) {
         var file = e.target.files[0];
@@ -44,20 +69,114 @@
                 }
             }
 
-            lines.shift(); //removes the first row to make the second row the header
-
-            const data = d3.csvParse(lines.join("\n")); //turn back into a csv!
+            //now gets the data for the rest of the worksheet (starting from range 1 - second row)
+            fileData = XLSX.utils.sheet_to_json(worksheet, {
+                range: 1,
+                defval: ""
+            });
 
             d3.select('#chart').remove();
-            makeChart(data); //makes the chart after removing old one
+            makeChart(fileData, sort=toSort); //makes the chart after removing old one
+
+            document.getElementById('sortCheckbox').hidden = false; //make checkbox visible after chart exists
+            document.getElementById('sortLabel').hidden = false;
+            document.getElementById('cutoffInput').hidden = false;
+            document.getElementById('cutoffLabel').hidden = false;
         };
 
         reader.readAsArrayBuffer(file);
     }
 
-    document.getElementById('fileInput').addEventListener('change', handleFileUpload);
+    function handleSort(e) {
+        toSort = e.target.checked;
+        
+        d3.select('#chart').remove();
+        makeChart(fileData, sort=toSort);
+    }
 
-    function makeChart(data) {
+    function handleCutoff(e) {
+        cutoff = Number(e.target.value);
+        d3.select('#chart').remove();
+        makeChart(fileData, sort=toSort);
+    }
+
+    document.getElementById('fileInput').addEventListener('change', handleFileUpload);
+    document.getElementById('sortCheckbox').addEventListener('change', handleSort);
+    document.getElementById('cutoffInput').addEventListener('input', handleCutoff);
+
+    //function for lengths if sorted by place in genome
+    function unsorted(starts, ends) {
+        oneLengths = [];
+
+        oneLengths.push(Number(starts[0])); //initial white space
+
+        for (let i = 0; i < starts.length - 1; i++) {
+            oneLengths.push(ends[i] - starts[i]); //colored space
+            oneLengths.push(starts[i + 1] - ends[i]); //white space
+        }
+
+        oneLengths.push(ends[starts.length - 1] - starts[starts.length - 1]); //final colored space
+
+        lengths = [];
+
+        for (let i = 0; i < header.length; i++) {
+            lengths.push(oneLengths);
+        }
+
+        return lengths;
+    }
+
+    //function for lengths if sorted by percent identity
+    function sorted(data, identities, starts, ends) {
+        lengths = [];
+        refLengthWhite = Number(starts[0]); //initial white space
+        refLengthBlack = 0;
+
+        for (let i = 0; i < starts.length - 1; i++) {
+            refLengthBlack += ends[i] - starts[i]; //colored space
+            refLengthWhite += starts[i + 1] - ends[i]; //white space
+        }
+
+        refLengthBlack += ends[starts.length - 1] - starts[starts.length - 1]; //final colored space
+        refLengths = [refLengthBlack, refLengthWhite];
+        lengths[0] = refLengths;
+
+        //now for the sorted lengths of the other genomes!
+        for (let i = 1; i < header.length; i++) {
+            thisLengths = [];
+            whiteLength = refLengthWhite; //will never have white space less than reference
+
+            //have to combine to preserve the lengths of each gene
+            both = identities[i - 1].map((identity, j) => ({
+                identity: identity,
+                length: ends[j] - starts[j]
+            }))
+
+            both.sort((a, b) => {
+                if (a.identity === '') return 1; // move empty strings to the end
+                if (b.identity === '') return -1; 
+                return b.identity - a.identity; // sort descending
+            })
+
+            for (let j = 0; j < both.length; j++) {
+                if (both[j].identity === '') {
+                    whiteLength += both[j].length; //adds to the total whiteLength w/ no identity
+                }
+                else {
+                    thisLengths.push(both[j].length);
+                }
+                
+                identities[i - 1][j] = both[j].identity; //identities array updated to be sorted
+            }
+
+            thisLengths.push(whiteLength); //add the white space to the end
+            lengths[i] = thisLengths;
+        }
+
+        return [lengths, identities];
+    }
+
+    function makeChart(data, sort = false, type="arc") {
         // Create the SVG container.
         const svg = d3.create("svg")
             .attr("width", width)
@@ -72,7 +191,6 @@
         colorMap = [];
         arcsArray = [];
 
-
         for (let i = 0; i < header.length; i++) {
             if (i != 0) {
                 identities.push([]); //not needed for reference
@@ -85,39 +203,106 @@
             starts.push(d["ref_genome_start"]);
             ends.push(d["ref_genome_end"]);
             for (let i = 1; i < header.length; i++) {
-                identities[i - 1].push(d[`comp_genome_${i}_percent_identity`]);
+                identity = d[`comp_genome_${i}_percent_identity`];
+                identities[i - 1].push(identity);
             }
         });
 
-        lengths = [];
-        lengths.push(starts[0]); //initial white space
+        console.log("starts", starts);
+        console.log("ends", ends);
 
-        for (let i = 0; i < starts.length - 1; i++) {
-            lengths.push(ends[i] - starts[i]); //colored space
-            lengths.push(starts[i + 1] - ends[i]); //white space
+        //change color domain to fit within the bounds of the data
+        //flat: concatenates all subarrays, filter: removes empties
+        let minIdentity = d3.min(identities.flat().filter(d => d !== ''));
+        let maxIdentity = d3.max(identities.flat().filter(d => d !== ''));
+        //TODO: fix if the rounding causes one number to be equal to the next number
+        //adds new numbers to the color domain
+        for (let i = 1; i < colorDomain.length; i++) {
+            domainPos = Number(minIdentity) + Number(maxIdentity - minIdentity) * Number((i - 1) / (colorDomain.length - 2));
+            domainPos = Math.round(domainPos * 100) / 100; //round to 2 decimal places
+            colorDomain[i] = domainPos;
         }
 
-        lengths.push(ends[starts.length - 1] - starts[starts.length - 1]); //final colored space
+        //once domain is created, can remove identities below cutoff
+        if (cutoff > minIdentity) {
+            for (let i = 0; i < identities.length; i++) {
+                for (let j = 0; j < identities[i].length; j++) {
+                    if (identities[i][j] !== '' && Number(identities[i][j]) < cutoff) {
+                        identities[i][j] = '';
+                    }
+                }
+            }
+        }
 
-        //defining custom color range
-        const color = d3.scaleLinear()
-            .domain([0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.95, 0.98, 0.99, 0.995, 0.998, 0.999, 100])
-            .range(["#ff1100", "#ff9f99", "#ffa699", "#ffae99", "#ffb799", "#ffc299", "#ffcf99", "#ffe099", "#fff899", "#deff99", "#b5ff99", "#99ffb1", "#99ffd8", "#99fffc", "#99daff", "#99c2ff", "#9999ff"]);
+        //create legend for the color domain
+        svg.append("text")
+            .attr("x", 100)
+            .attr("y", 20 + 30)
+            .attr("text-anchor", "left")
+            .attr("fill", "black")
+            .text("Percent Identity: ");
+
+        //legend boxes
+        for (let i = 0; i < colorDomain.length; i++) {
+            svg.append("rect")
+                .attr("x", 225 + i * 50)
+                .attr("y", 20)
+                .attr("width", 50)
+                .attr("height", 50)
+                .attr("fill", colorRange[i]);
+            
+            svg.append("text")
+                .attr("x", 225 + i * 50 + 25)
+                .attr("y", 20 + 30)
+                .attr("text-anchor", "middle")
+                .attr("fill", i < 4 ? "black" : "white")
+                .text(colorDomain[i]);
+        }
+        svg.append("rect")
+            .attr("x", 225)
+            .attr("y", 20)
+            .attr("width", 50 * colorDomain.length)
+            .attr("height", 50)
+            .attr("stroke", "black")
+            .attr("stroke-width", 2)
+            .attr("fill", "none");
+
+        lengths = [];
+
+        if (sort === false) {
+            lengths = unsorted(starts, ends);
+        } else {
+            [lengths, identities] = sorted(data, identities, starts, ends);
+        }
 
         //can now determine colors corresponding to sequence identity
         for (let i = 0; i < header.length; i++) {
-            for (let j = 0; j < lengths.length; j++) {
-                if (j % 2 === 0) {
+            for (let j = 0; j < lengths[i].length; j++) {
+                if (!sort && j % 2 === 0) { //if sorted by genome, every other length is white
                     colorMap[i].push("white");
                 } else {
                     if (i === 0) {
-                        colorMap[i].push("#9999ff"); //always 100% for reference
+                        if (sort) {
+                            if (j === 0) {
+                                colorMap[i].push("black"); //only two segments, the coding genes and everything else
+                            } else {
+                                colorMap[i].push("white");
+                            }
+                        } else {
+                            colorMap[i].push("black"); //always 100% for reference
+                        }
                     } else {
+                        if (!sort) {
+                            k = Math.floor(j / 2); //index for the identities skips every other length (white space)
+                        } else {
+                            k = j //index puts white space at the end
+                        }
+
                         //have to color according to scale (and always white if 0% sequence identity)
-                        if (identities[i - 1][Math.floor(j / 2)] === '') {
+                        if (identities[i - 1][k] === '') {
                             colorMap[i].push("white");
                         } else {
-                            let identity = identities[i - 1][Math.floor(j / 2)];
+                            let identity = identities[i - 1][k];
                             colorMap[i].push(color(identity));
                         }
                     }
@@ -125,28 +310,46 @@
             }
         }
 
-        const pie = d3.pie().sortValues(null); //cancel sorting
-        const arcs = pie(lengths);
-        console.log(header);
+        const pie = d3.pie().sort(null) //cancel sorting
+
         for (let i = 0; i < header.length; i++) {
-            console.log("printing arc i", i)
             arcsArray[i] = d3.arc()
                 .innerRadius(400 - 25 * (i + 1))
                 .outerRadius(400 - 25 * i);
         }
 
         const g = svg.append("g") //puts pie chart in center of svg
-            .attr("transform", `translate(${width / 2}, ${height / 2})`);
+            .attr("transform", `translate(${500}, ${500})`);
         
+        //initial label
+        svg.append("text")
+                .attr("x", width - 275)
+                .attr("y", height / 2 - 400)
+                .attr("text-anchor", "left")
+                .attr("fill", "black")
+                .attr("font-weight", "bold")
+                .text("Genomes:");
+
         //creates arcs for each bacteria
         for (let i = 0; i < header.length; i++) {
             const newRing = g.append("g");
+            const arcs = pie(lengths[i]);
 
             newRing.selectAll("path")
                 .data(arcs)
                 .join("path")
                 .attr("d", arcsArray[i])
-                .attr("fill", (d, j) => colorMap[i][j]);
+                .attr("fill", (d, j) => colorMap[i][j])
+                .attr("stroke", (d, j) => colorMap[i][j])
+                .attr("stroke-width", 1);
+
+            //labels from outside to inside
+            svg.append("text")
+                .attr("x", width - 275)
+                .attr("y", height / 2 - 400 + 25 * (i + 1))
+                .attr("text-anchor", "left")
+                .attr("fill", "black")
+                .text(i === 0 ? "Reference: " + header[i] : header[i]);
         }
 
         // Append the SVG element.
